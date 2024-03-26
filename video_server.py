@@ -2,7 +2,7 @@ import cv2
 
 cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
 
-if not cap.isOpened():
+while not cap.isOpened():
     print("Error: Could not open video stream")
     cap.open("udp://0.0.0.0:11111")
 
@@ -17,7 +17,7 @@ while True:
     cv2.namedWindow('Tello Video Stream', cv2.WINDOW_NORMAL)
     cv2.imshow('Tello Video Stream', frame)
 
-    if cv2.waitKey(1) & 0xFF == 27:
+    if cv2.waitKey(1) & 0xFF == 27:  # ESC key
         break
 
 cv2.destroyAllWindows()

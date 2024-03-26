@@ -4,26 +4,21 @@ import torch
 
 from utils import non_max_suppression, scale_boxes
 
-torch.backends.cudnn.benchmark = True  # set True to speed up constant image size inference
+# torch.backends.cudnn.benchmark = True  # set True to speed up constant image size inference
 
 BUFFER_SIZE = 65507
 
 DEVICE = 'cuda:0'
 
-# LOCAL_ADDRESS = ('0.0.0.0', 11111)
-
 DET_TORCHSCRIPT = 'yolov5s.torchscript'
 
-CLASS_NUM = 80
-
-# server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-# server_socket.bind(LOCAL_ADDRESS)
-
-cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
-
+print("Loading model")
 model = torch.jit.load(DET_TORCHSCRIPT, map_location=torch.device(DEVICE))
 model.float()  # FP32
 model.to(DEVICE).eval().forward(torch.zeros(1, 3, 640, 640, device=DEVICE))  # warm-up
+
+print("Waiting for UDP stream")
+cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
 
 while not cap.isOpened():
     print("Error: Could not open video stream")
@@ -33,19 +28,12 @@ print(cap.isOpened())
 print('Waiting for video frame...')
 
 while True:
-    # Receive video frame
-    # data, _ = server_socket.recvfrom(BUFFER_SIZE)
-
-    # if not data:
-    #     continue
-
     ret, frame = cap.read()
 
     if not ret:
         continue
 
     # Preprocess image
-    # frame = cv2.imdecode(frame, 1)  # 1 means load color image
     frame = cv2.resize(frame, (640, 640))
 
     img = np.transpose(frame, (2, 0, 1))[::-1]  # HWC -> CHW & BGR -> RGB
