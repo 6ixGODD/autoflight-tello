@@ -14,14 +14,11 @@ BUFFER_SIZE = 65507
 
 DEVICE = 'cuda:0'
 
-LOCAL_ADDRESS = ('0.0.0.0', 11111)
-
 DET_TORCHSCRIPT = 'yolov5l.torchscript'
 
 CLASS_NUM = 80
 
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-server_socket.bind(LOCAL_ADDRESS)
+cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
 
 det_model = torch.jit.load(DET_TORCHSCRIPT, map_location=torch.device(DEVICE))
 det_model.float()  # FP32
@@ -29,18 +26,20 @@ det_model.to(DEVICE).eval().forward(torch.zeros(1, 3, 640, 640, device=DEVICE)) 
 
 tracker = DeepSort(max_age=5)
 
+while not cap.isOpened():
+    print("Error: Could not open video stream")
+    cap.open("udp://0.0.0.0:11111")
+
+print(cap.isOpened())
+
 print('Waiting for video frame...')
 while True:
     # Receive video frame
-    data, _ = server_socket.recvfrom(BUFFER_SIZE)
+    ret, frame = cap.read()
 
-    if not data:
+    if not ret:
         continue
 
-    image = np.frombuffer(data, dtype=np.uint8)
-
-    # Preprocess image
-    frame = cv2.imdecode(image, 1)  # 1 means load color image
     frame = cv2.resize(frame, (640, 640))
 
     img = np.transpose(frame, (2, 0, 1))[::-1]  # HWC -> CHW & BGR -> RGB

@@ -1,10 +1,8 @@
 import socket
 
 TELLO_IP = '192.168.10.1'
-# TELLO_IP = '127.0.0.1'
 
 TELLO_PORT = 8889
-# TELLO_PORT = 8890
 
 client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
