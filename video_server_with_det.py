@@ -30,9 +30,6 @@ print('Waiting for video frame...')
 while True:
     ret, frame = cap.read()
 
-    if not ret:
-        continue
-
     # Preprocess image
     frame = cv2.resize(frame, (640, 640))
 

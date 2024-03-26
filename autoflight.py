@@ -10,6 +10,10 @@ from utils import non_max_suppression, scale_boxes
 
 torch.backends.cudnn.benchmark = True  # set True to speed up constant image size inference
 
+TELLO_IP = '192.168.10.1'
+
+TELLO_PORT = 8889
+
 BUFFER_SIZE = 65507
 
 DEVICE = 'cuda:0'
@@ -18,6 +22,15 @@ DET_TORCHSCRIPT = 'yolov5l.torchscript'
 
 CLASS_NUM = 80
 
+
+client_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+client_socket.sendto('command'.encode('utf-8'), (TELLO_IP, TELLO_PORT))  # send `command` to Tello to open SDK mode
+time.sleep(1)
+client_socket.sendto('streamon'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+time.sleep(1)
+client_socket.sendto('takeoff'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+time.sleep(1)
+client_socket.sendto('up 50'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
 cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
 
 det_model = torch.jit.load(DET_TORCHSCRIPT, map_location=torch.device(DEVICE))
@@ -36,6 +49,8 @@ print('Waiting for video frame...')
 while True:
     # Receive video frame
     ret, frame = cap.read()
+
+    time.sleep(5)
 
     frame = cv2.resize(frame, (640, 640))
 
@@ -64,6 +79,22 @@ while True:
                 continue
             t_id = t.track_id
             bbox = t.to_tlbr().astype(int)
+            if t_id == 0:
+                if not (bbox[0] < 320 < bbox[2]):
+                    if bbox[2] < 320:
+                        client_socket.sendto('cw 100'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+                    else:
+                        client_socket.sendto('ccw 100'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+                if not (bbox[1] < 320 < bbox[3]):
+                    if bbox[3] < 320:
+                        client_socket.sendto('back 30'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+                    else:
+                        client_socket.sendto('forward 30'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+                if (bbox[3] - bbox[1]) / 640 > 0.3 or (bbox[2] - bbox[0]) / 640 > 0.6:
+                    client_socket.sendto('back 30'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+                elif (bbox[3] - bbox[1]) / 640 < 0.1 or (bbox[2] - bbox[0]) / 640 < 0.2:
+                    client_socket.sendto('forward 30'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
+
             # bbox[2:] -= bbox[:2]
             bbox[1], bbox[3] = bbox[3], bbox[1]
             color = (255, 0, 0)
