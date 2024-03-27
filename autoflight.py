@@ -18,7 +18,7 @@ BUFFER_SIZE = 65507
 
 DEVICE = 'cuda:0'
 
-DET_TORCHSCRIPT = 'yolov5l.torchscript'
+DET_TORCHSCRIPT = 'yolov5s.torchscript'
 
 CLASS_NUM = 80
 
@@ -30,14 +30,15 @@ client_socket.sendto('streamon'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
 time.sleep(1)
 client_socket.sendto('takeoff'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
 time.sleep(1)
-client_socket.sendto('up 50'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
-cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
+client_socket.sendto('up 80'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
 
 det_model = torch.jit.load(DET_TORCHSCRIPT, map_location=torch.device(DEVICE))
 det_model.float()  # FP32
 det_model.to(DEVICE).eval().forward(torch.zeros(1, 3, 640, 640, device=DEVICE))  # warm-up
 
 tracker = DeepSort(max_age=5)
+
+cap = cv2.VideoCapture('udp://0.0.0.0:11111', cv2.CAP_FFMPEG)
 
 while not cap.isOpened():
     print("Error: Could not open video stream")
@@ -74,12 +75,13 @@ while True:
         start = time.time_ns()
         track = tracker.update_tracks(bx, frame=frame)
         print(f'Tracking time: {(time.time_ns() - start) / 1e6:.2f} ms')
+        min_t_id = min([t.track_id for t in track if t.is_confirmed()])
         for t in track:
             if not t.is_confirmed():
                 continue
             t_id = t.track_id
             bbox = t.to_tlbr().astype(int)
-            if t_id == 0:
+            if t_id == min_t_id:
                 if not (bbox[0] < 320 < bbox[2]):
                     if bbox[2] < 320:
                         client_socket.sendto('cw 100'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
@@ -94,20 +96,8 @@ while True:
                     client_socket.sendto('back 30'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
                 elif (bbox[3] - bbox[1]) / 640 < 0.1 or (bbox[2] - bbox[0]) / 640 < 0.2:
                     client_socket.sendto('forward 30'.encode('utf-8'), (TELLO_IP, TELLO_PORT))
-
-            # bbox[2:] -= bbox[:2]
-            bbox[1], bbox[3] = bbox[3], bbox[1]
-            color = (255, 0, 0)
-            cv2.rectangle(frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), color, 3)
-            cv2.putText(
-                frame,
-                str(t_id),
-                (bbox[0], bbox[1] - 10),
-                cv2.FONT_HERSHEY_SIMPLEX,
-                1,
-                color,
-                2
-            )
+                cv2.rectangle(frame, (bbox[0], bbox[3]), (bbox[2], bbox[1]), (255, 0, 0), 3)
+                break
 
     cv2.namedWindow('Tello Video Stream', cv2.WINDOW_NORMAL)
     cv2.imshow('Tello Video Stream', frame)
