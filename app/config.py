@@ -1,0 +1,8 @@
+class Config:
+    DEVICE = 'cuda:0'
+    TELLO_ADDRESS = '192.168.10.2'
+
+    FRAME_SKIP = 300
+    ERROR_X_THRESHOLD = 60
+    ERROR_Y_THRESHOLD = 90
+    ERROR_SIZE_THRESHOLD = 0.3

@@ -1,6 +1,6 @@
-class Detector:
-    def __init__(self, model):
-        self.model = model
+class FaceDetector:
+    def __init__(self, weights_path):
+        pass
 
     def detect(self, image):
         # do some detection
