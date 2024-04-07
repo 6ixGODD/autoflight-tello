@@ -79,4 +79,7 @@ fabric.properties
 
 *.torchscript
 *.pt
-.idea
+../.idea
+app/weights
+test
+
