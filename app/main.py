@@ -1,17 +1,20 @@
-import telloy
+import tellopy
 from simple_pid import PID
-
+import cv2
+import av
 from utils.logger import get_logger
-from view import MainView
-from .model.face_detector import FaceDetector
+from view import MainWidget
+from config import Config
+from model.yolo import Detector
 
 LOGGER = get_logger('main', './logs', enable_ch=True)
-PID_CC = PID(0.35, 0.2, 0.2, setpoint=0, output_limits=(-50, 50))
-PID_UD = PID(0.3, 0.3, 0.3, setpoint=0, output_limits=(-40, 40))
-PID_FB = PID(0.3, 0.1, 0.4, setpoint=0, output_limits=(-10, 10))
-view = MainView()
-tello = telloy.Tello()
-face_detector = FaceDetector()
+view = MainWidget()
+tello = tellopy.Tello()
+detector = Detector(
+    weights_path=Config.YOLO_WEIGHT_PATH,
+    device=Config.DEVICE,
+    conf_thres=Config.CONF_THRES,
+    iou_thres=Config.YOLO_IOU_THRES,
+    img_size=Config.IMG_SIZE
+)
 
-if __name__ == '__main__':
-    pass
