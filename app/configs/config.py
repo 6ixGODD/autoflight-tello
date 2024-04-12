@@ -3,6 +3,7 @@ class Config:
     TELLO_ADDRESS = '192.168.10.2'
     CONNECTION_TIMEOUT = 60.0
     FRAME_SKIP = 300
+    VIDEO_ENCODER_RATE = 4
 
     # PID configurations
     ERROR_X_THRESHOLD = 60
@@ -28,7 +29,7 @@ class Config:
     # Model configurations
     IMG_SIZE = (960, 720)
     DEVICE = 'cuda:0'
-    MODEL_WEIGHTS_DIR = './weights'
+    MODEL_WEIGHTS_DIR = '../weights'
     YOLO_WEIGHT_PATH = MODEL_WEIGHTS_DIR + '/yolov8n-pose.pt'
     CONFIDENT_THRESHOLD = 0.3
     NMS_THRESHOLD = 0.4
@@ -36,6 +37,6 @@ class Config:
     TRACKER_CONFIG = './botsort.yaml'
 
     # Logger configurations
-    LOGS_DIR = './logs'
+    LOGS_DIR = '../logs'
 
 

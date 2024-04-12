@@ -1,6 +1,5 @@
 import sklearn
 
-class PoseInstructionClassifier:
+class PoseClassifier:
     def __init__(self):
         pass
-
