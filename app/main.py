@@ -2,147 +2,157 @@ import sys
 import time
 
 import av
-import tellopy
-from PyQt5.QtWidgets import QApplication
-from av.container import InputContainer
-from simple_pid import PID
 import cv2
-from queue import Queue
+import tellopy
+import torch
+import ultralytics.engine.results
+from simple_pid import PID
 
 from app.configs.config import Config
 from models.yolo import YoloDetector
 from utils.logger import get_logger
-from view import MainWidget
 
 
 class Controller:
     def __init__(self):
-        self.frame_provider = None
-        self.frame_provider: InputContainer
-        self.auto_pilot_flag = False
-        self.capture_flag = False
-        self.shutdown_flag = False
-
-        self.LOGGER = get_logger('main', './logs', enable_ch=True)
-        self.tello = tellopy.Tello()
-        self.yolo_detector = YoloDetector(
-            weights_path=Config.YOLO_WEIGHT_PATH,
-            device=Config.DEVICE,
-            conf_thres=Config.CONFIDENT_THRESHOLD,
-            iou_thres=Config.IOU_THRESHOLD,
-            tracker=Config.TRACKER_CONFIG,
-            # img_size=Config.IMG_SIZE
+        self.LOGGER = get_logger(__name__, save_dir="./logs")
+        self.LOGGER.info("Initializing Controller")
+        self.CONFIG = Config()
+        self.LOGGER.info("Loading YOLO")
+        self.yolo = YoloDetector(
+            weights_path=self.CONFIG.YOLO_WEIGHT_PATH,
+            device=self.CONFIG.DEVICE,
+            tracker=self.CONFIG.TRACKER_CONFIG,
+            conf_thres=self.CONFIG.CONFIDENT_THRESHOLD,
+            iou_thres=self.CONFIG.IOU_THRESHOLD
         )
-
+        self.LOGGER.info("Initializing PID Controllers")
         self.pid_cc = PID(
-            Config.PID_CC_KP,
-            Config.PID_CC_KI,
-            Config.PID_CC_KD,
+            self.CONFIG.PID_CC_KP,
+            self.CONFIG.PID_CC_KI,
+            self.CONFIG.PID_CC_KD,
             setpoint=0,
-            output_limits=Config.PID_CC_OUTPUT_LIMITS
+            output_limits=self.CONFIG.PID_CC_OUTPUT_LIMITS
         )
         self.pid_ud = PID(
-            Config.PID_UD_KP,
-            Config.PID_UD_KI,
-            Config.PID_UD_KD,
+            self.CONFIG.PID_UD_KP,
+            self.CONFIG.PID_UD_KI,
+            self.CONFIG.PID_UD_KD,
             setpoint=0,
-            output_limits=Config.PID_UD_OUTPUT_LIMITS
+            output_limits=self.CONFIG.PID_UD_OUTPUT_LIMITS
         )
         self.pid_fb = PID(
-            Config.PID_FB_KP,
-            Config.PID_FB_KI,
-            Config.PID_FB_KD,
+            self.CONFIG.PID_FB_KP,
+            self.CONFIG.PID_FB_KI,
+            self.CONFIG.PID_FB_KD,
             setpoint=0,
-            output_limits=Config.PID_FB_OUTPUT_LIMITS
+            output_limits=self.CONFIG.PID_FB_OUTPUT_LIMITS
         )
-
-        self.view = None
-        self.view: MainWidget
-
-    # Callbacks --------------------------------------------------------------------------------
-    def _initial_callback(self):
         self.LOGGER.info("Connecting to Tello")
-        self.tello.connect()
         try:
-            self.tello.wait_for_connection(Config.CONNECTION_TIMEOUT)
-            self.LOGGER.info("Tello connected")
+            self.drone = tellopy.Tello()
+            self.drone.connect()
+            self.drone.wait_for_connection(self.CONFIG.CONNECTION_TIMEOUT)
+
+            self.drone.start_video()
+            self.frame_provider = av.open(self.drone.get_video_stream())
+            self.LOGGER.info("Skipping frames")
+
+            self.LOGGER.info("Connected to Tello")
+            self.drone.takeoff()
         except Exception as e:
-            self.LOGGER.error(f"Failed to connect to Tello: {e}")
-            self.shutdown_flag = True
-            return
-        self.LOGGER.info("Starting video stream")
-        self.tello.set_video_encoder_rate(Config.VIDEO_ENCODER_RATE)
-        self.tello.start_video()
-        self.frame_provider = av.open(tello.get_video_stream())
-        self.LOGGER.info("Video stream started")
-        # self.tello.subscribe(tello.EVENT_VIDEO_FRAME, self.handler)
-        self.LOGGER.info("Taking off")
-        self.tello.takeoff()
+            self.LOGGER.error(f"Error creating drone object: {e}")
+            sys.exit(1)
 
-    def _auto_pilot_callback(self):
-        self.LOGGER.info("Starting auto pilot")
-        self.auto_pilot_flag = True
+        self.shutdown = False
+        self.cc = 0
+        self.ud = 0
+        self.fb = 0
 
-    def _disable_auto_pilot_callback(self):
-        self.LOGGER.info("Disabling auto pilot")
-        self.auto_pilot_flag = False
-
-    def _capture_callback(self):
-        self.LOGGER.info("Starting capture")
-        self.capture_flag = True
-
-    def _shutdown_callback(self):
-        self.LOGGER.info("Shutting down")
-        self.auto_pilot_flag = False
-        self.capture_flag = False
-        self.tello.land()
-        self.tello.quit()
-        self.shutdown_flag = True
-        self.LOGGER.info("Tello disconnected")
-
-    def controller_thread(self):
-        while not self.shutdown_flag:
-            if self.auto_pilot_flag:
+    def control_thread(self):
+        self.LOGGER.info("Starting Control Thread")
+        try:
+            while not self.shutdown:
+                time.sleep(.05)
                 pass
-            if self.capture_flag:
-                self.LOGGER.info("Capture")
-                self.capture_flag = False
-            time.sleep(0.1)
+        except KeyboardInterrupt as e:
+            self.LOGGER.error(f"Keyboard Interrupt: {e}")
+        except Exception as e:
+            self.LOGGER.error(f"Error: {e}")
+        finally:
+            self.shutdown = True
+            self.drone.quit()
+            self.LOGGER.info("Control Thread Stopped")
 
-    # Main function ----------------------------------------------------------------------------
     def run(self):
-        app = QApplication(sys.argv)
-        self.view = MainWidget(
-            initial_callback=self._initial_callback,
-            auto_pilot_callback=self._auto_pilot_callback,
-            disable_auto_pilot_callback=self._disable_auto_pilot_callback,
-            capture_callback=self._capture_callback,
-            shutdown_callback=self._shutdown_callback
-        )
-        self.view.show()
+        self.LOGGER.info("Starting Controller")
+        import threading
+        control_thread = threading.Thread(target=self.control_thread)
+        control_thread.start()
+        try:
+            while not self.shutdown:
+                frames = self.frame_provider.decode(video=0)
+                for i, frame in enumerate(frames):
+                    if i < self.CONFIG.FRAME_SKIP or i % self.CONFIG.VIDEO_ENCODER_RATE != 0:
+                        continue
+                    frame = frame.to_ndarray(format='bgr24').astype('uint8')
+                    frame = cv2.resize(frame, self.CONFIG.IMG_SIZE)
+                    result: ultralytics.engine.results.Results = self.yolo.inference(frame)
+                    if len(result.boxes.xywh) == 0:
+                        cv2.imshow("Autopilot", frame)
+                        continue
+                    center_x, center_y, w, h = result.boxes.xywh[0]
+                    area = w * h
+                    error_x = center_x - self.CONFIG.IMG_SIZE[0] / 2
+                    error_y = center_y - self.CONFIG.IMG_SIZE[1] / 2
+                    error_size = area - (
+                            self.CONFIG.IMG_SIZE[0] * self.CONFIG.IMG_SIZE[1] * self.CONFIG.ERROR_SIZE_THRESHOLD
+                    )
 
-        # cap = cv2.VideoCapture(0)
-        # while cap.isOpened():
-        #     success, frame = cap.read()
-        #     if success:
-        #         self.view.update_video_frame(frame)
-        #         if cv2.waitKey(1) & 0xFF == ord("q"):
-        #             break
-        #     else:
-        #         break
+                    self.cc = self.pid_cc(error_x) if abs(error_x) > self.CONFIG.ERROR_X_THRESHOLD else 0
+                    self.ud = self.pid_ud(error_y) if abs(error_y) > self.CONFIG.ERROR_Y_THRESHOLD else 0
+                    self.fb = self.pid_fb(error_size) if abs(error_size) > self.CONFIG.ERROR_SIZE_THRESHOLD else 0
 
-        # while not self.shutdown_flag:
-        #     if self.auto_pilot_flag:
-        #         pass
-        #     if self.capture_flag:
-        #         self.LOGGER.info("Capture")
-        #         self.capture_flag = False
-        #     time.sleep(0.1)  TODO: Implement in a new thread
+                    image = result.plot()
+                    cv2.putText(
+                        image, f"CC: {self.cc}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+                    )
+                    cv2.putText(
+                        image, f"UD: {self.ud}", (10, 60),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+                    )
+                    cv2.putText(
+                        image,
+                        f"FB: {self.fb}", (10, 90),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2
+                    )
+                    cv2.line(
+                        image,
+                        (center_x, center_y),
+                        (self.CONFIG.IMG_SIZE[0] // 2,
+                         self.CONFIG.IMG_SIZE[1] // 2),
+                        (0, 255, 0),
+                        2
+                    )
+                    cv2.imshow("Autopilot", image)
+                    cv2.waitKey(1)
 
-        self.LOGGER.info("Exiting")
-        sys.exit(app.exec_())
+        except KeyboardInterrupt as e:
+            self.LOGGER.error(f"Keyboard Interrupt: {e}")
+        except Exception as e:
+            self.LOGGER.error(f"Error: {e}")
+            self.LOGGER.error(f"Traceback: {sys.exc_info()}")
+        finally:
+            self.shutdown = True
+            self.drone.land()
+            self.drone.quit()
+            # control_thread.join()
+            cv2.destroyAllWindows()
+            self.LOGGER.info("Controller Stopped")
 
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     controller = Controller()
     controller.run()
+    sys.exit(1)

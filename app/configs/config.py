@@ -1,9 +1,9 @@
 class Config:
     # Tello configurations
     TELLO_ADDRESS = '192.168.10.2'
-    CONNECTION_TIMEOUT = 60.0
+    CONNECTION_TIMEOUT = 10.
     FRAME_SKIP = 300
-    VIDEO_ENCODER_RATE = 4
+    VIDEO_ENCODER_RATE = 2
 
     # PID configurations
     ERROR_X_THRESHOLD = 60
@@ -27,7 +27,7 @@ class Config:
     PID_FB_OUTPUT_LIMITS = (-10, 10)
 
     # Model configurations
-    IMG_SIZE = (960, 720)
+    IMG_SIZE = (640, 640)
     DEVICE = 'cuda:0'
     MODEL_WEIGHTS_DIR = '../weights'
     YOLO_WEIGHT_PATH = MODEL_WEIGHTS_DIR + '/yolov8n-pose.pt'
@@ -38,5 +38,8 @@ class Config:
 
     # Logger configurations
     LOGS_DIR = '../logs'
+
+    # Others
+    TEST_IMAGE_PATH = '../images.jpg'
 
 

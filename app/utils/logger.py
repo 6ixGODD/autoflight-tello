@@ -23,7 +23,7 @@ def get_logger(name, save_dir, enable_ch=True):
     if enable_ch:
         logger.addHandler(ch)
     logger.addHandler(fh)
-    logger.info("# log file: {}".format(
+    logger.info("Log file: {}".format(
         Path(
             save_dir,
             f"{name}_{datetime.datetime.now().strftime('%Y-%m-%dT%H:%M:%SZ')}.log"

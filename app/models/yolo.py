@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
@@ -28,12 +29,33 @@ class YoloDetector:
             imgsz=img_size
         )
 
-    def inference(self, frame: torch.Tensor) -> Results:
+    def inference(self, frame: np.ndarray) -> Results:
         return self.model.track(
             source=frame,
-            track=self.tracker,
+            tracker=self.tracker,
             conf=self.conf_thres,
             iou=self.iou_thres,
             device=self.device,
             imgsz=self.img_size
         )[0]
+
+
+if __name__ == '__main__':
+    import cv2
+    cap = cv2.VideoCapture(0)
+    yolo = YoloDetector(
+        weights_path="../weights/yolov8n-pose.pt",
+        device="cuda:0",
+        tracker="../configs/botsort.yaml"
+    )
+    while True:
+        ret, frame = cap.read()
+        results = yolo.inference(frame)
+        cv2.imshow("frame", results.plot())
+        center_x, center_y, w, h = results.boxes.xywh[0]
+        print(center_x, center_y, w, h)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    cap.release()
+    cv2.destroyAllWindows()
+
