@@ -66,11 +66,12 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend):
             if all(pose.keypoints[i][0] != -1 for i in [0, 5, 2]):
                 current_poses.append(pose)
 
+        if not len(current_poses):
+            return np.array([]), image
         track_poses(self.previous_keypoints, current_poses, smooth=self.__smooth) if self.__track else None
         self.previous_keypoints = current_poses
 
         current_poses[0].draw(image)
-
         image = cv2.addWeighted(data, 0.6, image, 0.4, 0)
         return current_poses[0].keypoints, image
 

@@ -54,10 +54,8 @@ class TelloController:
         ) if record_video else None
 
         # thread
-        self.__event = threading.Event()
         self.__control_thread = threading.Thread(target=self.__control_thread_func)
-        self.__pose_thread = threading.Thread(target=self.__pose_thread_func, args=[self.__event, ]) \
-            if pose_estimator else None
+        self.__pose_thread = threading.Thread(target=self.__pose_thread_func) if pose_estimator else None
 
         # flag
         self.__shutdown = False
@@ -84,23 +82,25 @@ class TelloController:
         # self._tello.takeoff()
         # self._tello.up(20)
         while not self.__shutdown:
-            time.sleep(0.05)
             __skip = False
             for frame in self._frame_container.decode(video=0):
                 if __skip:
                     __skip = False
                     continue
+                if frame is None:
+                    self._logger.warning('Frame is None.')
+                    self.shutdown()
                 frame = frame.to_ndarray(format='bgr24').astype('uint8')
                 if self.pose_estimator:  # pose estimator
                     keypoints, image = self.pose_estimator.predict(frame)
 
                     if len(keypoints):
-                        self._keypoints = keypoints[0]
-                        pose_center = (self._keypoints[0][0], self._keypoints[0][1])
+                        self._keypoints = keypoints
+                        keypoint_center = (self._keypoints[0][0], self._keypoints[0][1])
                         center = (image.shape[1] // 2, image.shape[0] // 2)
                         # noinspection PyTypeChecker
-                        image = cv2.line(image, center, pose_center, (255, 255, 0), 2)
-                        err_cc, err_ud = pose_center[0] - center[0], pose_center[1] - center[1]
+                        image = cv2.line(image, center, keypoint_center, (255, 255, 0), 2)
+                        err_cc, err_ud = keypoint_center[0] - center[0], keypoint_center[1] - center[1]
                         l_sho, r_sho = self._keypoints[5], self._keypoints[2]
                         err_fb = self.__calculate_euclidean_distance(l_sho, r_sho) - self._expected_height
                         self.cc, self.ud, self.fb = self.error_controller.update((err_cc, err_ud, err_fb))
@@ -147,17 +147,18 @@ class TelloController:
             time.sleep(0.3)
             self._tello.clockwise(self.cc.__int__()) if self.cc > 0 else self._tello.counter_clockwise(
                 -self.cc.__int__()
-                )
+            )
             self._tello.up(self.ud.__int__()) if self.ud > 0 else self._tello.down(-self.ud.__int__())
             self._tello.forward(self.fb.__int__()) if self.fb > 0 else self._tello.backward(-self.fb.__int__())
             self.cc_, self.ud_, self.fb_ = self.cc, self.ud, self.fb
 
-    def __pose_thread_func(self, event: threading.Event):
+    def __pose_thread_func(self):
         while not self.__shutdown:
-            event.wait()
-            keypoints = np.array(self._keypoints.keypoints).flatten() if self._keypoints else np.zeros(36, )
-            keypoints = keypoints.reshape(1, -1)
-            if self.pose_classifier.predict(keypoints) == 2:
+            if not len(self._keypoints):
+                continue
+            keypoints_flatten = self._keypoints.flatten()
+            keypoints_flatten = keypoints_flatten.reshape(1, -1)
+            if self.pose_classifier.predict(keypoints_flatten) == 2:
                 self._logger.info('Recognized gesture: Land')
                 self.shutdown()
 
@@ -169,7 +170,7 @@ class TelloController:
         self.__shutdown = True
         try:
             self.__control_thread.join()
-            # self.__pose_thread.join()
+            self.__pose_thread.join() if self.pose_estimator else None
         except AttributeError:
             pass
         if self.__record_video:
