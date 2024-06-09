@@ -54,15 +54,17 @@ class TelloController:
         ) if record_video else None
 
         # thread
+        self.__event = threading.Event()
         self.__control_thread = threading.Thread(target=self.__control_thread_func)
-        self.__pose_thread = threading.Thread(target=self.__pose_thread_func) if pose_estimator else None
+        self.__pose_thread = threading.Thread(target=self.__pose_thread_func, args=[self.__event, ]) \
+            if pose_estimator else None
 
         # flag
         self.__shutdown = False
         self.__record_video = record_video
 
         # control
-        self._pose = None
+        self._keypoints = None
         self._expected_height = expected_height
         self.cc, self.ud, self.fb = 0, 0, 0
         self.cc_, self.ud_, self.fb_ = 0, 0, 0
@@ -79,8 +81,8 @@ class TelloController:
             self._frame_container.decode(video=0)
         self._logger.info('Tello controller running...')
         cv2.namedWindow('Tello', cv2.WINDOW_NORMAL)
-        self._tello.takeoff()
-        self._tello.up(20)
+        # self._tello.takeoff()
+        # self._tello.up(20)
         while not self.__shutdown:
             time.sleep(0.05)
             __skip = False
@@ -90,17 +92,16 @@ class TelloController:
                     continue
                 frame = frame.to_ndarray(format='bgr24').astype('uint8')
                 if self.pose_estimator:  # pose estimator
-                    pose, image = self.pose_estimator.predict(frame)
+                    keypoints, image = self.pose_estimator.predict(frame)
 
-                    if len(pose):
-                        self._pose = pose[0]
-                        # Draw the keypoints
-                        self._pose.draw(image)
-                        pose_center = (self._pose.keypoints[0][0], self._pose.keypoints[0][1])
+                    if len(keypoints):
+                        self._keypoints = keypoints[0]
+                        pose_center = (self._keypoints[0][0], self._keypoints[0][1])
                         center = (image.shape[1] // 2, image.shape[0] // 2)
+                        # noinspection PyTypeChecker
                         image = cv2.line(image, center, pose_center, (255, 255, 0), 2)
                         err_cc, err_ud = pose_center[0] - center[0], pose_center[1] - center[1]
-                        l_sho, r_sho = self._pose.keypoints[5], self._pose.keypoints[2]
+                        l_sho, r_sho = self._keypoints[5], self._keypoints[2]
                         err_fb = self.__calculate_euclidean_distance(l_sho, r_sho) - self._expected_height
                         self.cc, self.ud, self.fb = self.error_controller.update((err_cc, err_ud, err_fb))
                     else:
@@ -108,11 +109,10 @@ class TelloController:
                         self.error_controller.reset()
 
                 else:  # detector
-                    image = frame
-                    bbox = self.detector.predict(frame)
+                    bbox, image = self.detector.predict(frame)
                     if len(bbox):
                         bbox = bbox[0]
-                        image = cv2.rectangle(image, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
+                        # noinspection PyTypeChecker
                         bbox_center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)
                         center = (image.shape[1] // 2, image.shape[0] // 2)
                         image = cv2.line(image, center, bbox_center, (0, 255, 0), 2)
@@ -140,24 +140,22 @@ class TelloController:
         self._tello.start_video()
         self._frame_container = av.open(self._tello.get_video_stream())
         self.__control_thread.start()
-        # self.__pose_thread.start() if self.pose_estimator else None
+        self.__pose_thread.start() if self.pose_estimator else None
 
     def __control_thread_func(self):
         while not self.__shutdown:
             time.sleep(0.3)
-            self._logger.info(f"CC: {self.cc}")
-            self._tello.clockwise(self.cc.__int__()) if self.cc > 0 else self._tello.counter_clockwise(-self.cc.__int__())
-            print(f"UD: {self.ud}")
+            self._tello.clockwise(self.cc.__int__()) if self.cc > 0 else self._tello.counter_clockwise(
+                -self.cc.__int__()
+                )
             self._tello.up(self.ud.__int__()) if self.ud > 0 else self._tello.down(-self.ud.__int__())
-            print(f"FB: {self.fb}")
             self._tello.forward(self.fb.__int__()) if self.fb > 0 else self._tello.backward(-self.fb.__int__())
             self.cc_, self.ud_, self.fb_ = self.cc, self.ud, self.fb
 
-    def __pose_thread_func(self):
+    def __pose_thread_func(self, event: threading.Event):
         while not self.__shutdown:
-            print('Checking for gesture...')
-            time.sleep(0.3)
-            keypoints = np.array(self._pose.keypoints).flatten() if self._pose else np.zeros(36, )
+            event.wait()
+            keypoints = np.array(self._keypoints.keypoints).flatten() if self._keypoints else np.zeros(36, )
             keypoints = keypoints.reshape(1, -1)
             if self.pose_classifier.predict(keypoints) == 2:
                 self._logger.info('Recognized gesture: Land')
@@ -171,7 +169,7 @@ class TelloController:
         self.__shutdown = True
         try:
             self.__control_thread.join()
-            self.__pose_thread.join()
+            # self.__pose_thread.join()
         except AttributeError:
             pass
         if self.__record_video:

@@ -1,7 +1,7 @@
 from controller.pid import PIDController
 from controller.tello import TelloController
-from models.pose import MobileNetPoseEstimatorBackend
-from models.pose_clf import PoseClassifierBackend
+from models.mobile_net import MobileNetPoseEstimatorBackend
+from models.adaboost import PoseClassifierBackend
 
 if __name__ == '__main__':
     pose_estimator = MobileNetPoseEstimatorBackend(weights_path='weights/mobilenet-pose.pth')

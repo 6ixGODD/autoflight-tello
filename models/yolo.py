@@ -3,10 +3,10 @@ import torch
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 
-from models import BaseDetectorBackend
+from models import BaseDetectorBackend, BasePoseEstimatorBackend
 
 
-class YoloDetectorBackend(BaseDetectorBackend[Results]):
+class YoloDetectorBackend(BaseDetectorBackend, BasePoseEstimatorBackend):
     def __init__(
             self,
             weights_path: str,

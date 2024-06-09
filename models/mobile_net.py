@@ -12,7 +12,7 @@ from models.mobilenet.modules.pose import Pose, track_poses
 from models.mobilenet.with_mobilenet import PoseEstimationWithMobileNet
 
 
-class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
+class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend):
     def __init__(
             self,
             device: str = 'cuda',
@@ -32,12 +32,12 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
         self.__smooth = smooth
         self.__track = track
 
-        self.previous_poses: List[Pose] = []
+        self.previous_keypoints: np.ndarray = np.array([])
 
     def init_model(self):
         load_state(self.model, torch.load(self._weights_path, map_location=self._device))
 
-    def predict(self, data: np.ndarray, **kwargs) -> Tuple[List[Pose], np.ndarray]:
+    def predict(self, data: np.ndarray, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         image = data.copy()
         heatmaps, pafs, scale, padding = self.__inference(image)
 
@@ -49,7 +49,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
         pose_entries, all_keypoints = group_keypoints(all_keypoints_by_type, pafs)
 
         if len(pose_entries) == 0:
-            return [], image
+            return np.array([]), image
 
         all_keypoints[:, 0] = (all_keypoints[:, 0] * self._stride / 4 - padding[1]) / scale
         all_keypoints[:, 1] = (all_keypoints[:, 1] * self._stride / 4 - padding[0]) / scale
@@ -66,14 +66,13 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
             if all(pose.keypoints[i][0] != -1 for i in [0, 5, 2]):
                 current_poses.append(pose)
 
-        track_poses(self.previous_poses, current_poses, smooth=self.__smooth) if self.__track else None
-        self.previous_poses = current_poses
+        track_poses(self.previous_keypoints, current_poses, smooth=self.__smooth) if self.__track else None
+        self.previous_keypoints = current_poses
 
-        for pose in current_poses:
-            pose.draw(image)
+        current_poses[0].draw(image)
 
         image = cv2.addWeighted(data, 0.6, image, 0.4, 0)
-        return current_poses, image
+        return current_poses[0].keypoints, image
 
     def __inference(self, images: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, List[int]]:
         h, w, _ = images.shape

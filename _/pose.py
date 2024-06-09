@@ -1,4 +1,4 @@
-from models.pose import MobileNetPoseEstimatorBackend
+from models.mobile_net import MobileNetPoseEstimatorBackend
 import cv2
 
 pose_estimator = MobileNetPoseEstimatorBackend(weights_path='weights/mobilenet-pose.pth')
@@ -8,6 +8,7 @@ cap = cv2.VideoCapture(0)
 while True:
     ret, frame = cap.read()
     poses, frame = pose_estimator.predict(frame)
+    print(type(poses))
     cv2.imshow("frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
