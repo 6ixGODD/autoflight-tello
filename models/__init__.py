@@ -1,3 +1,4 @@
+import dataclasses
 from abc import ABC, abstractmethod
 from typing import Generic, List, Tuple, TypeVar
 
@@ -46,3 +47,11 @@ class BaseClassifierBackend(BaseModelBackend[T_co]):
     @abstractmethod
     def init_model(self, **kwargs):
         pass
+
+
+@dataclasses.dataclass
+class CocoKeypoint:
+    x: int
+    y: int
+    score: float
+    type: int

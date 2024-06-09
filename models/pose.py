@@ -23,8 +23,8 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
             smooth: bool = True,
             track: bool = True
     ):
-        self.model = PoseEstimationWithMobileNet().cuda()
         self._device = torch.device('cuda') if device == 'cuda' and torch.cuda.is_available() else torch.device('cpu')
+        self.model = PoseEstimationWithMobileNet().cuda() if self._device.type == 'cuda' else PoseEstimationWithMobileNet()
         self._weights_path = weights_path
         self._input_size = input_size
         self._stride = stride
@@ -66,7 +66,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
             if all(pose.keypoints[i][0] != -1 for i in [0, 5, 2]):
                 current_poses.append(pose)
 
-        track_poses(self.previous_poses, current_poses) if self.__track else None
+        track_poses(self.previous_poses, current_poses, smooth=self.__smooth) if self.__track else None
         self.previous_poses = current_poses
 
         for pose in current_poses:
@@ -79,11 +79,11 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[Pose]):
         h, w, _ = images.shape
         scale = self._input_size / h
 
-        scaled_img = cv2.resize(images, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC)
+        scaled_img = cv2.resize(images, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
         # Normalize
         scaled_img = (scaled_img - 128) / 256.
         min_dims = [self._input_size, max(scaled_img.shape[1], self._input_size)]
-        padded_img, pad = self.__pad_width(scaled_img, self._stride, (114, 114, 114), min_dims)
+        padded_img, pad = self.__pad_width(scaled_img, self._stride, (0, 0, 0), min_dims)
         img_tensor = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float()
         img_tensor = img_tensor.cuda() if self._device.type == 'cuda' else img_tensor
         stages_output = self.model(img_tensor)
