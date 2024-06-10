@@ -1,11 +1,11 @@
 import math
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import cv2
 import numpy as np
 import torch
 
-from models import BasePoseEstimatorBackend, BaseClassifierBackend
+from models import BaseClassifierBackend, BasePoseEstimatorBackend
 from models.mobilenet.modules.keypoints import extract_keypoints, group_keypoints
 from models.mobilenet.modules.load_state import load_state
 from models.mobilenet.modules.pose import Pose, track_poses
@@ -13,6 +13,25 @@ from models.mobilenet.with_mobilenet import PoseEstimationWithMobileNet
 
 
 class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
+    NOSE = 0
+    NECK = 1
+    RIGHT_SHOULDER = 2
+    RIGHT_ELBOW = 3
+    RIGHT_WRIST = 4
+    LEFT_SHOULDER = 5
+    LEFT_ELBOW = 6
+    LEFT_WRIST = 7
+    RIGHT_HIP = 8
+    RIGHT_KNEE = 9
+    RIGHT_ANKLE = 10
+    LEFT_HIP = 11
+    LEFT_KNEE = 12
+    LEFT_ANKLE = 13
+    LEFT_EYE = 14
+    RIGHT_EYE = 15
+    LEFT_EAR = 16
+    RIGHT_EAR = 17
+
     def __init__(
             self,
             device: str = 'cuda',
@@ -24,7 +43,8 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
             track: bool = True
     ):
         self._device = torch.device('cuda') if device == 'cuda' and torch.cuda.is_available() else torch.device('cpu')
-        self.model = PoseEstimationWithMobileNet().cuda() if self._device.type == 'cuda' else PoseEstimationWithMobileNet()
+        self.model = PoseEstimationWithMobileNet().cuda() \
+            if self._device.type == 'cuda' else PoseEstimationWithMobileNet()
         self._weights_path = weights_path
         self._input_size = input_size
         self._stride = stride
@@ -33,14 +53,14 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         self.__track = track
 
         self.previous_keypoints: np.ndarray = np.array([])
-        self.pose_classifier = None
+        self._pose_classifier = None
 
     def init_model(self):
         load_state(self.model, torch.load(self._weights_path, map_location=self._device))
 
-    def predict(self, data: np.ndarray, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+    def estimate(self, data: np.ndarray, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         image = data.copy()
-        heatmaps, pafs, scale, padding = self.__inference(image)
+        heatmaps, pafs, scale, padding = self._inference(image)
 
         total = 0
         all_keypoints_by_type = []
@@ -76,7 +96,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         image = cv2.addWeighted(data, 0.6, image, 0.4, 0)
         return current_poses[0].keypoints, image
 
-    def __inference(self, images: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, List[int]]:
+    def _inference(self, images: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, List[int]]:
         h, w, _ = images.shape
         scale = self._input_size / h
 
@@ -84,7 +104,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         # Normalize
         scaled_img = (scaled_img - 128) / 256.
         min_dims = [self._input_size, max(scaled_img.shape[1], self._input_size)]
-        padded_img, pad = self.__pad_width(scaled_img, self._stride, (0, 0, 0), min_dims)
+        padded_img, pad = self._pad_width(scaled_img, self._stride, (0, 0, 0), min_dims)
         img_tensor = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float()
         img_tensor = img_tensor.cuda() if self._device.type == 'cuda' else img_tensor
         stages_output = self.model(img_tensor)
@@ -100,7 +120,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         return heatmaps, pafs, scale, pad
 
     @staticmethod
-    def __pad_width(
+    def _pad_width(
             image: np.ndarray,
             stride: int,
             pad_value: Tuple[int, int, int],
@@ -115,12 +135,21 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         padded_img = cv2.copyMakeBorder(image, *pad, cv2.BORDER_CONSTANT, value=pad_value)
         return padded_img, pad
 
-    def register_pose_classifier(self, pose_classifier: 'BaseClassifierBackend[int]'):
-        self.pose_classifier = pose_classifier
-
-    def classify_pose(self, keypoints: np.ndarray, **kwargs) -> int:
-        return self.pose_classifier.predict(keypoints)
+    def classify(self, keypoints: np.ndarray, **kwargs) -> Optional[int]:
+        return self._pose_classifier.classify(keypoints) if self._pose_classifier else None
 
     @property
-    def is_pose_classifier_registered(self) -> bool:
-        return self.pose_classifier is not None
+    def pose_classifier(self) -> 'BaseClassifierBackend[int]':
+        return self._pose_classifier
+
+    @pose_classifier.setter
+    def pose_classifier(self, pose_classifier: 'BaseClassifierBackend[int]'):
+        self._pose_classifier = pose_classifier
+
+    @property
+    def center_index(self) -> int:
+        return self.NECK
+
+    @property
+    def key_indexes(self) -> Tuple[int, int]:
+        return self.LEFT_SHOULDER, self.RIGHT_SHOULDER

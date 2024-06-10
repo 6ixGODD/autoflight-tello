@@ -14,13 +14,13 @@ pose_classifier = PoseClassifierBackend(
 cap = cv2.VideoCapture(0)
 while True:
     ret, frame = cap.read()
-    keypoint, frame = pose_estimator.predict(frame)
+    keypoint, frame = pose_estimator.estimate(frame)
     # keypoint_center = (keypoint[0][0], keypoint[0][1]) if len(keypoint) > 0 else (0, 0)
     # cv2.circle(frame, keypoint_center, 5, (0, 255, 0), -1)
 
     keypoints = keypoint.flatten() if len(keypoint) else np.zeros(36, )
     keypoints = keypoints.reshape(1, -1)
-    print(pose_classifier.predict(keypoints))
+    print(pose_classifier.classify(keypoints))
     cv2.imshow("frame", frame)
     if cv2.waitKey(1) & 0xFF == ord('q'):
         break
