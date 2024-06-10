@@ -5,14 +5,14 @@ import cv2
 import numpy as np
 import torch
 
-from models import BasePoseEstimatorBackend
+from models import BasePoseEstimatorBackend, BaseClassifierBackend
 from models.mobilenet.modules.keypoints import extract_keypoints, group_keypoints
 from models.mobilenet.modules.load_state import load_state
 from models.mobilenet.modules.pose import Pose, track_poses
 from models.mobilenet.with_mobilenet import PoseEstimationWithMobileNet
 
 
-class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend):
+class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
     def __init__(
             self,
             device: str = 'cuda',
@@ -33,6 +33,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend):
         self.__track = track
 
         self.previous_keypoints: np.ndarray = np.array([])
+        self.pose_classifier = None
 
     def init_model(self):
         load_state(self.model, torch.load(self._weights_path, map_location=self._device))
@@ -113,3 +114,13 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend):
         pad += [min_dims[i] - dim - pad[i] for i, dim in enumerate([h, w])]
         padded_img = cv2.copyMakeBorder(image, *pad, cv2.BORDER_CONSTANT, value=pad_value)
         return padded_img, pad
+
+    def register_pose_classifier(self, pose_classifier: 'BaseClassifierBackend[int]'):
+        self.pose_classifier = pose_classifier
+
+    def classify_pose(self, keypoints: np.ndarray, **kwargs) -> int:
+        return self.pose_classifier.predict(keypoints)
+
+    @property
+    def is_pose_classifier_registered(self) -> bool:
+        return self.pose_classifier is not None

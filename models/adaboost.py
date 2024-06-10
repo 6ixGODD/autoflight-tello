@@ -10,7 +10,7 @@ class PoseClassifierBackend(BaseClassifierBackend[int]):
         self.land_clf = pickle.load(open(land_pkl, 'rb'))
 
     def predict(self, data: np.ndarray, **kwargs) -> int:  # 1 for capture, 2 for land and 0 for others
-        return 1 if self.capture_clf.predict(data) == 1 else 2 if self.land_clf.predict(data) == 1 else 0
+        return 2 if self.capture_clf.predict(data) == 1 else 1 if self.land_clf.predict(data) == 1 else 0
 
     def init_model(self, **kwargs):
         pass

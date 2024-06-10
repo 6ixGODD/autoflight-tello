@@ -16,19 +16,36 @@ class BaseModelBackend(ABC, Generic[T_co]):
         pass
 
 
-class BasePoseEstimatorBackend(BaseModelBackend[Tuple[np.ndarray, np.ndarray]]):
+POSE_CAPTURE = 1
+POSE_LAND = 2
+
+
+class BasePoseEstimatorBackend(BaseModelBackend[Tuple[T_co, np.ndarray]]):
     @abstractmethod
-    def predict(self, data, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+    def predict(self, data, **kwargs) -> Tuple[T_co, np.ndarray]:
         pass
 
     @abstractmethod
     def init_model(self, **kwargs):
         pass
 
-
-class BaseDetectorBackend(BaseModelBackend[Tuple[np.ndarray, np.ndarray]]):
     @abstractmethod
-    def predict(self, data, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
+    def register_pose_classifier(self, pose_classifier: 'BaseClassifierBackend[int]'):
+        pass
+
+    @abstractmethod
+    def classify_pose(self, keypoints: np.ndarray, **kwargs) -> int:
+        pass
+
+    @property
+    @abstractmethod
+    def is_pose_classifier_registered(self) -> bool:
+        pass
+
+
+class BaseDetectorBackend(BaseModelBackend[Tuple[T_co, np.ndarray]]):
+    @abstractmethod
+    def predict(self, data, **kwargs) -> Tuple[T_co, np.ndarray]:
         pass
 
     @abstractmethod

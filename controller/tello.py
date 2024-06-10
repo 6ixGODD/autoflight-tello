@@ -10,7 +10,10 @@ import numpy as np
 import tellopy
 
 from controller import BaseErrorController
-from models import BaseClassifierBackend, BaseDetectorBackend, BasePoseEstimatorBackend
+from models import (
+    # BaseClassifierBackend,
+    BaseDetectorBackend, BasePoseEstimatorBackend, POSE_LAND,
+)
 from utils.files import increment_path
 from utils.logger import get_logger
 
@@ -19,7 +22,6 @@ class TelloController:
     def __init__(
             self,
             error_controller: BaseErrorController,
-            pose_classifier: BaseClassifierBackend,
             pose_estimator: Optional[BasePoseEstimatorBackend] = None,
             detector: Optional[BaseDetectorBackend] = None,
 
@@ -35,7 +37,6 @@ class TelloController:
         # models
         self.pose_estimator = pose_estimator
         self.detector = detector
-        self.pose_classifier = pose_classifier
         self.error_controller = error_controller
 
         # tello
@@ -55,11 +56,14 @@ class TelloController:
 
         # thread
         self.__control_thread = threading.Thread(target=self.__control_thread_func)
-        self.__pose_thread = threading.Thread(target=self.__pose_thread_func) if pose_estimator else None
+        self.__pose_thread = threading.Thread(target=self.__pose_thread_func) if (
+            pose_estimator.is_pose_classifier_registered
+        ) else None
 
         # flag
         self.__shutdown = False
         self.__record_video = record_video
+        self.__enable_pose_control = self.pose_estimator.is_pose_classifier_registered
 
         # control
         self._keypoints = None
@@ -133,14 +137,13 @@ class TelloController:
     def __init(self):
         self.pose_estimator.init_model() if self.pose_estimator else None
         self.detector.init_model() if self.detector else None
-        self.pose_classifier.init_model()
         self.error_controller.reset()
         self._tello.connect()
         self._tello.wait_for_connection(self._connection_timeout)
         self._tello.start_video()
         self._frame_container = av.open(self._tello.get_video_stream())
         self.__control_thread.start()
-        self.__pose_thread.start() if self.pose_estimator else None
+        self.__pose_thread.start() if self.__enable_pose_control else None
 
     def __control_thread_func(self):
         while not self.__shutdown:
@@ -156,9 +159,8 @@ class TelloController:
         while not self.__shutdown:
             if not len(self._keypoints):
                 continue
-            keypoints_flatten = self._keypoints.flatten()
-            keypoints_flatten = keypoints_flatten.reshape(1, -1)
-            if self.pose_classifier.predict(keypoints_flatten) == 2:
+            keypoints_flatten = self._keypoints.flatten().reshape(1, -1)
+            if self.pose_estimator.classify_pose(keypoints_flatten) == POSE_LAND:
                 self._logger.info('Recognized gesture: Land')
                 self.shutdown()
 
@@ -170,7 +172,7 @@ class TelloController:
         self.__shutdown = True
         try:
             self.__control_thread.join()
-            self.__pose_thread.join() if self.pose_estimator else None
+            self.__pose_thread.join() if self.__enable_pose_control else None
         except AttributeError:
             pass
         if self.__record_video:
