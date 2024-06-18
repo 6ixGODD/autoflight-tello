@@ -7,8 +7,8 @@ import cv2
 pose_estimator = MobileNetPoseEstimatorBackend(weights_path='weights/mobilenet-pose.pth')
 pose_estimator.init_model()
 pose_classifier = PoseClassifierBackend(
-    capture_pkl='weights/pose_clf/adaboost-capture.pkl',
-    land_pkl='weights/pose_clf/adaboost-land.pkl'
+    capture_pkl='weights/pose_clf/adaboost-capture-openpose.pkl',
+    land_pkl='weights/pose_clf/adaboost-land-openpose.pkl'
 )
 
 cap = cv2.VideoCapture(0)

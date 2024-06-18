@@ -32,13 +32,14 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
     LEFT_EAR = 16
     RIGHT_EAR = 17
 
+    NUM_KEYPOINTS = 18
+
     def __init__(
             self,
             device: str = 'cuda',
             weights_path: str = 'pose.pth',
             input_size: int = 256,
             stride: int = 8,
-            nums_keypoints: int = 18,
             smooth: bool = True,
             track: bool = True
     ):
@@ -48,7 +49,6 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         self._weights_path = weights_path
         self._input_size = input_size
         self._stride = stride
-        self._nums_keypoints = nums_keypoints
         self.__smooth = smooth
         self.__track = track
 
@@ -64,7 +64,7 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
 
         total = 0
         all_keypoints_by_type = []
-        for i in range(self._nums_keypoints):
+        for i in range(self.NUM_KEYPOINTS):
             total += extract_keypoints(heatmaps[:, :, i], all_keypoints_by_type, total)
 
         pose_entries, all_keypoints = group_keypoints(all_keypoints_by_type, pafs)
@@ -79,8 +79,8 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         for entry in pose_entries:
             if len(entry) == 0:
                 continue
-            pose_keypoints = np.ones((self._nums_keypoints, 2), dtype=np.int32) * -1
-            for i in range(self._nums_keypoints):
+            pose_keypoints = np.ones((self.NUM_KEYPOINTS, 2), dtype=np.int32) * -1
+            for i in range(self.NUM_KEYPOINTS):
                 if entry[i] != -1.0:
                     pose_keypoints[i] = all_keypoints[int(entry[i])][:2].astype(np.int32)
             pose = Pose(pose_keypoints, entry[18])
@@ -96,19 +96,22 @@ class MobileNetPoseEstimatorBackend(BasePoseEstimatorBackend[np.ndarray]):
         image = cv2.addWeighted(data, 0.6, image, 0.4, 0)
         return current_poses[0].keypoints, image
 
-    def _inference(self, images: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, List[int]]:
-        h, w, _ = images.shape
+    def _inference(self, image: np.ndarray) -> Tuple[np.ndarray, np.ndarray, float, List[int]]:
+        h, w, _ = image.shape
         scale = self._input_size / h
 
-        scaled_img = cv2.resize(images, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
-        # Normalize
-        scaled_img = (scaled_img - 128) / 256.
+        # Pre-processing
+        scaled_img = cv2.resize(image, (0, 0), fx=scale, fy=scale, interpolation=cv2.INTER_LINEAR)
+        scaled_img = (scaled_img - np.array([128, 128, 128], np.float32)) / 256.  # Normalize
         min_dims = [self._input_size, max(scaled_img.shape[1], self._input_size)]
         padded_img, pad = self._pad_width(scaled_img, self._stride, (0, 0, 0), min_dims)
         img_tensor = torch.from_numpy(padded_img).permute(2, 0, 1).unsqueeze(0).float()
         img_tensor = img_tensor.cuda() if self._device.type == 'cuda' else img_tensor
+
+        # Inference
         stages_output = self.model(img_tensor)
 
+        # Post-processing
         stage2_heatmaps = stages_output[-2]
         heatmaps = np.transpose(stage2_heatmaps.squeeze().cpu().data.numpy(), (1, 2, 0))
         heatmaps = cv2.resize(heatmaps, (0, 0), fx=4, fy=4, interpolation=cv2.INTER_CUBIC)

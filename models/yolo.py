@@ -43,6 +43,8 @@ class YoloV8Backend(BaseDetectorBackend, BasePoseEstimatorBackend):
             imgsz=self._img_size
         )[0]
 
+        if result.boxes.xyxy.cpu().numpy().shape[0] == 0:
+            return np.array([]), result.plot()
         return result.boxes.xyxy.cpu().numpy()[0], result.plot()
 
     def estimate(self, data: np.ndarray, **kwargs) -> Tuple[np.ndarray, Type[np.ndarray]]:
@@ -91,7 +93,7 @@ class YoloV8Backend(BaseDetectorBackend, BasePoseEstimatorBackend):
 
     @property
     def key_indexes(self) -> Tuple[int, int]:
-        return self.LEFT_WRIST, self.RIGHT_WRIST
+        return self.LEFT_SHOULDER, self.RIGHT_SHOULDER
 
 
 if __name__ == '__main__':
@@ -114,10 +116,26 @@ if __name__ == '__main__':
             if not ret:
                 break
             frame = cv2.resize(frame, (640, 640))
-            kp, frame = model.estimate(frame)
-            print("Length:", kp.shape[0])
-            print("Predicted:", kp)
-            print("Center:", kp[model.center_index][0], kp[model.center_index][1])
-            cv2.imshow('Pose Classifier', frame)
+            # kp, frame = model.estimate(frame)
+            # print("Length:", kp.shape[0])
+            # print("Predicted:", kp)
+            # print("Center:", kp[model.center_index][0], kp[model.center_index][1])
+            # cv2.imshow('Pose Classifier', frame)
+            # if cv2.waitKey(1) & 0xFF == ord('q'):
+            #     break
+
+            bbox, frame = model.detect(frame)
+            print("Length:", bbox.shape[0])
+            print("Predicted:", bbox)
+            if len(bbox) > 0:
+                bbox_center = (int(bbox[0] + bbox[2]) // 2, int(bbox[1] + bbox[3]) // 2)
+                center = (frame.shape[1] // 2, frame.shape[0] // 2)
+                frame = cv2.line(frame, center, bbox_center, (0, 255, 0), 2)
+
+            cv2.imshow("frame", frame)
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
+
+
+
+

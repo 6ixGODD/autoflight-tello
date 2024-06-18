@@ -17,6 +17,8 @@ from utils.logger import get_logger
 
 class TelloController:
     COLOR_LINE = (255, 255, 0)
+    INITIAL_HEIGHT = 50
+    WINDOW_NAME = 'Tello'
 
     def __init__(
             self,
@@ -53,19 +55,20 @@ class TelloController:
         ) if record_video else None
 
         # thread
-        self.__control_thread = threading.Thread(target=self._control_thread_func)
+        self.__control_thread = threading.Thread(target=self._control_thread)
+        self.__pose_classification_thread = threading.Thread(target=self._pose_classification_thread)
 
         # flag
         self.__shutdown = False
         self.__record_video = record_video
-        self.__enable_pose_control = self.pose_estimator.pose_classifier is not None
+        self.__enable_pose_control = self.pose_estimator.pose_classifier is not None if self.pose_estimator else False
 
         # control
         self._keypoints = None
         self._expected_height = expected_height
         self.cc, self.ud, self.fb = 0, 0, 0
         self.cc_, self.ud_, self.fb_ = 0, 0, 0
-        self._shutdown_queue = np.zeros(10)
+        self._shutdown_queue = np.zeros(20)
 
     def run(self):
         signal.signal(signal.SIGINT, self._shutdown_callback)
@@ -78,21 +81,18 @@ class TelloController:
         for _ in range(self._frame_skip):
             self._frame_container.decode(video=0)
         self._logger.info('Tello controller running...')
-        cv2.namedWindow('Tello', cv2.WINDOW_NORMAL)
+        cv2.namedWindow(self.WINDOW_NAME, cv2.WINDOW_NORMAL)
         self._tello.takeoff()
-        self._tello.up(20)
+        self._tello.up(self.INITIAL_HEIGHT)
         while not self.__shutdown:
             __skip = False
             for frame in self._frame_container.decode(video=0):
                 if __skip:
                     __skip = False
                     continue
-                if frame is None:
-                    self._logger.warning('Frame is None.')
-                    self.shutdown()
                 frame = frame.to_ndarray(format='bgr24').astype('uint8')
                 if self.pose_estimator:  # pose estimator
-                    keypoints, image = self.pose_estimator.estimate(frame)
+                    keypoints, image = self.pose_estimator.estimate(frame)  # keypoints, image
 
                     if (
                             len(keypoints) > 0 and
@@ -119,7 +119,7 @@ class TelloController:
                     bbox, image = self.detector.detect(frame)
                     if len(bbox):
                         # noinspection PyTypeChecker
-                        bbox_center = ((bbox[0] + bbox[2]) // 2, (bbox[1] + bbox[3]) // 2)  # x, y
+                        bbox_center = (int(bbox[0] + bbox[2]) // 2, int(bbox[1] + bbox[3]) // 2)  # x, y
                         center = (image.shape[1] // 2, image.shape[0] // 2)
                         image = cv2.line(image, center, bbox_center, self.COLOR_LINE, 2)
                         # distance from center
@@ -131,18 +131,12 @@ class TelloController:
                         self.cc = self.ud = self.fb = 0
                         self.error_controller.reset()
 
-                cv2.imshow('Tello', image)
-                if cv2.waitKey(1) & 0xFF == ord('q'):
-                    self.shutdown()
+                cv2.imshow(self.WINDOW_NAME, image)
+                cv2.waitKey(1)
                 if self.__record_video:
                     self._video_writer.write(image)
-                __skip = True
 
-            # Calculate the average of the last 10 values
-            # If average > 0.5, then shutdown
-            # if np.mean(self._shutdown_queue) > 0.5:
-            #     self._logger.info('Shutdown command received.')
-            #     self.shutdown()
+                __skip = True
 
     def _init(self):
         self.pose_estimator.init_model() if self.pose_estimator else None
@@ -151,41 +145,46 @@ class TelloController:
         self._tello.connect()
         self._tello.wait_for_connection(self._connection_timeout)
         self._tello.start_video()
+        time.sleep(3)  # wait for video stream
         self._frame_container = av.open(self._tello.get_video_stream())
         self.__control_thread.start()
-        # self.__pose_thread.start() if self.__enable_pose_control else None
+        self.__pose_classification_thread.start()
 
-    def _control_thread_func(self):
+    def _control_thread(self):
         while not self.__shutdown:
             time.sleep(0.3)
-            self._tello.clockwise(self.cc.__int__()) \
-                if self.cc > 0 and self.cc != self.cc_ else self._tello.counter_clockwise(-self.cc.__int__())
-            self._tello.up(self.ud.__int__()) \
-                if self.ud > 0 and self.ud != self.ud_ else self._tello.down(-self.ud.__int__())
-            self._tello.forward(self.fb.__int__()) \
-                if self.fb > 0 and self.fb != self.fb_ else self._tello.backward(-self.fb.__int__())
+            if self.cc != self.cc_:
+                self._tello.counter_clockwise(self.cc.__int__()) if self.cc > 0 else self._tello.clockwise(
+                    -self.cc.__int__()
+                )
+            if self.ud != self.ud_:
+                self._tello.up(self.ud.__int__()) if self.ud > 0 else self._tello.down(-self.ud.__int__())
+            if self.fb != self.fb_:
+                self._tello.forward(self.fb.__int__()) if self.fb > 0 else self._tello.backward(-self.fb.__int__())
             self.cc_, self.ud_, self.fb_ = self.cc, self.ud, self.fb  # Save previous values
 
-    def _pose_classification(self):
-        if len(self._keypoints):
-            keypoints_flatten = self._keypoints.flatten().reshape(1, -1)
-            if self.pose_estimator.classify(keypoints_flatten) == self.pose_estimator.pose_classifier.POSE_LAND:
-                self._logger.debug('Pose: Land')
-                self._shutdown_queue = np.roll(self._shutdown_queue, 1)
-            else:
-                self._shutdown_queue = np.roll(self._shutdown_queue, 0)
+    def _pose_classification_thread(self):
+        while not self.__shutdown:
+            time.sleep(0.3)
+            if self._keypoints is not None and len(self._keypoints):
+                keypoints_flatten = self._keypoints.flatten().reshape(1, -1)
+                if self.pose_estimator.classify(keypoints_flatten) == self.pose_estimator.pose_classifier.POSE_LAND:
+                    self._logger.debug('Detected land pose, landing...')
+                    # enqueue 1 for land
+                    self._shutdown_queue = np.roll(self._shutdown_queue, 1)
+
+                    if np.sum(self._shutdown_queue) >= len(self._shutdown_queue) // 2:
+                        self.shutdown()
+                else:
+                    self._shutdown_queue = np.roll(self._shutdown_queue, 0)  # enqueue 0 for others
 
     def shutdown(self):
         self._logger.info('Shutting down Tello controller...')
-        cv2.destroyAllWindows()
         self._tello.land()
+        time.sleep(3)  # wait for landing
         self._tello.quit()
         self.__shutdown = True
-        try:
-            self.__control_thread.join()
-            # self.__pose_thread.join() if self.__enable_pose_control else None
-        except AttributeError:
-            pass
+
         if self.__record_video:
             self._video_writer.release()
         self._logger.info('Tello controller shutdown.')

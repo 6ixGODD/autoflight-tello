@@ -16,7 +16,8 @@ class PIDController(BaseErrorController):
             fb_limits: Tuple[float, float]
     ):
         self.cc_pid, self.ud_pid, self.fb_pid = (
-            PID(*cc_params, output_limits=cc_limits), PID(*ud_params, output_limits=ud_limits),
+            PID(*cc_params, output_limits=cc_limits),
+            PID(*ud_params, output_limits=ud_limits),
             PID(*fb_params, output_limits=fb_limits)
         )
 

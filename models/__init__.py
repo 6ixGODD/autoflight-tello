@@ -31,6 +31,8 @@ class BasePoseEstimatorBackend(BaseModelBackend, Generic[T_co]):
     LEFT_ANKLE = 15
     RIGHT_ANKLE = 16
 
+    NUM_KEYPOINTS = 17
+
     @abstractmethod
     def estimate(self, data: np.ndarray, **kwargs) -> Tuple[np.ndarray, np.ndarray]:
         pass
